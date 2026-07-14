@@ -109,7 +109,7 @@ class PdfWriter {
 export async function createCalculationPdf(project: ProjectV1, result: CalculationResult) {
   const pdf = await PDFDocument.create()
   pdf.registerFontkit(fontkit)
-  const fontResponse = await fetch('/fonts/NotoSansCJKjp-Regular.otf')
+  const fontResponse = await fetch(`${import.meta.env.BASE_URL}fonts/NotoSansCJKjp-Regular.otf`)
   if (!fontResponse.ok) throw new Error('日本語PDFフォントを読み込めません。')
   const fontBytes = await fontResponse.arrayBuffer()
   const font = await pdf.embedFont(fontBytes, { subset: true })

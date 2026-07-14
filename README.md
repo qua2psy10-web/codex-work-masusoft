@@ -2,6 +2,8 @@
 
 直壁・矩形RC集水マスを対象とした、PC向けのローカルWeb計算ツールです。常時／地震時と空虚／満水を組み合わせた4ケースについて、安定、側壁、底版、開口補強を照査します。
 
+公開版：[GitHub Pagesでアプリを開く](https://qua2psy10-web.github.io/codex-work-masusoft/)
+
 ## 起動
 
 ```bash
