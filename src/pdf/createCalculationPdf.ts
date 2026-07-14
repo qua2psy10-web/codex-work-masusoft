@@ -38,6 +38,11 @@ class PdfWriter {
     this.page = pdf.addPage([A4.width, A4.height])
   }
 
+  private newPage() {
+    this.page = this.pdf.addPage([A4.width, A4.height])
+    this.y = A4.height - margin
+  }
+
   private drawText(text: string, x: number, y: number, size: number, color: RGB, bold = false) {
     const runs: Array<{ text: string; latin: boolean }> = []
     for (const character of text) {
@@ -58,15 +63,16 @@ class PdfWriter {
 
   private ensure(height: number) {
     if (this.y - height < margin) {
-      this.page = this.pdf.addPage([A4.width, A4.height])
-      this.y = A4.height - margin
+      this.newPage()
+      return true
     }
+    return false
   }
 
-  heading(text: string, level = 1) {
+  heading(text: string, level = 1, keepWithNext = 0) {
     const size = level === 1 ? 19 : 13
     const gap = level === 1 ? 30 : 23
-    this.ensure(gap)
+    this.ensure(gap + keepWithNext)
     if (level === 1) this.page.drawRectangle({ x: margin, y: this.y - 5, width: 5, height: 21, color: navy })
     this.drawText(text, margin + (level === 1 ? 14 : 0), this.y, size, level === 1 ? navy : ink, true)
     this.y -= gap
@@ -77,6 +83,15 @@ class PdfWriter {
     this.ensure(lines.length * 15 + 7)
     lines.forEach((line) => { this.drawText(line, margin, this.y, 9.5, color); this.y -= 15 })
     this.y -= 4
+  }
+
+  trace(primary: string, detail: string, continuationHeading?: string) {
+    const lineCount = splitText(primary, 54).length + splitText(detail, 54).length
+    const blockHeight = lineCount * 15 + 15
+    const startedNewPage = this.ensure(blockHeight)
+    if (startedNewPage && continuationHeading) this.heading(`${continuationHeading}（続き）`, 2, blockHeight)
+    this.paragraph(primary)
+    this.paragraph(detail, muted)
   }
 
   keyValue(rows: Array<[string, string]>) {
@@ -92,12 +107,11 @@ class PdfWriter {
     this.y -= 10
   }
 
-  table(headers: string[], rows: string[][], widths: number[]) {
+  table(headers: string[], rows: string[][], widths: number[], continuationHeading?: string) {
     const rowHeight = 21
     const tableWidth = A4.width - margin * 2
     const normalized = widths.map((width) => width / widths.reduce((sum, value) => sum + value, 0) * tableWidth)
     const drawRow = (cells: string[], header = false) => {
-      this.ensure(rowHeight)
       let x = margin
       cells.forEach((cell, index) => {
         const width = normalized[index]
@@ -107,8 +121,17 @@ class PdfWriter {
       })
       this.y -= rowHeight
     }
+
+    this.ensure(rowHeight * (rows.length ? 2 : 1))
     drawRow(headers, true)
-    rows.forEach((row) => drawRow(row))
+    rows.forEach((row) => {
+      if (this.y - rowHeight < margin) {
+        this.newPage()
+        if (continuationHeading) this.heading(`${continuationHeading}（続き）`, 2, rowHeight * 2)
+        drawRow(headers, true)
+      }
+      drawRow(row)
+    })
     this.y -= 11
   }
 
@@ -126,6 +149,16 @@ class PdfWriter {
     this.drawText(`B=${g.innerWidth.toFixed(3)} m`, x + 45, y - 15, 8, ink)
     this.drawText(`H=${g.innerHeight.toFixed(3)} m`, x - 62, y + 45, 8, ink)
     this.y -= 155
+  }
+
+  addPageNumbers() {
+    const pages = this.pdf.getPages()
+    pages.forEach((page, index) => {
+      const label = `${index + 1} / ${pages.length}`
+      const size = 8
+      const width = this.latin.widthOfTextAtSize(label, size)
+      page.drawText(label, { x: A4.width - margin - width, y: 20, size, font: this.latin, color: muted })
+    })
   }
 }
 
@@ -145,7 +178,7 @@ export async function createCalculationPdf(project: ProjectV1, result: Calculati
   writer.paragraph(`計算日時：${new Date(result.calculatedAt).toLocaleString('ja-JP')}`, muted)
   writer.paragraph('本計算結果は検証用です。特定基準への適合を保証するものではありません。', rgb(0.65, 0.25, 0.05))
 
-  writer.heading('1. 基本条件', 2)
+  writer.heading('1. 基本条件', 2, 4 * 22 + 10)
   writer.keyValue([
     ['構造形式', '鉄筋コンクリート・直壁'],
     ['側壁解析モデル', project.basic.wallModel === 'plate' ? '3辺固定1辺自由板（薄板エネルギー法近似）' : '鉛直片持ち梁'],
@@ -153,7 +186,7 @@ export async function createCalculationPdf(project: ProjectV1, result: Calculati
     ['設計水平震度 kh', safe(project.seismic.horizontalCoefficient)],
   ])
 
-  writer.heading('2. 形状寸法', 2)
+  writer.heading('2. 形状寸法', 2, 5 * 22 + 10 + 165)
   writer.keyValue([
     ['内幅 B', `${safe(project.geometry.innerWidth)} m`], ['内奥行 D', `${safe(project.geometry.innerDepth)} m`],
     ['内高さ H', `${safe(project.geometry.innerHeight)} m`], ['壁厚 T1', `${safe(project.geometry.wallThickness)} m`],
@@ -161,7 +194,7 @@ export async function createCalculationPdf(project: ProjectV1, result: Calculati
   ])
   writer.sectionSketch(project)
 
-  writer.heading('3. 土質・水位・荷重', 2)
+  writer.heading('3. 土質・水位・荷重', 2, 7 * 22 + 10)
   writer.keyValue([
     ['土圧モデル', project.soilWater.pressureMethod === 'rankine' ? 'ランキン主働土圧' : '静止土圧'],
     ['内部摩擦角 φ', `${safe(project.soilWater.frictionAngle)} °`], ['粘着力 c', `${safe(project.soilWater.cohesion)} kN/m²`],
@@ -169,30 +202,32 @@ export async function createCalculationPdf(project: ProjectV1, result: Calculati
     ['等分布上載荷重', `${safe(project.loads.uniformSurcharge)} kN/m²`], ['後輪荷重', `${safe(project.loads.wheelLoad)} kN`],
   ])
 
-  writer.heading('4. 安定計算結果', 2)
+  writer.heading('4. 安定計算結果', 2, 2 * 21 + 11)
   writer.table(
     ['ケース', '浮上りFs', '鉛直合力', '偏心', 'qmin', 'qmax/qa', '判定'],
     Object.values(result.cases).map((item) => [item.label, safe(item.stability.upliftSafetyFactor, 2), safe(item.stability.verticalResultant, 1), safe(item.stability.eccentricity, 3), safe(item.stability.bearingMin, 1), `${safe(item.stability.bearingMax, 1)}/${safe(item.stability.allowableBearing, 1)}`, item.stability.status.toUpperCase()]),
     [1.2, 0.8, 1, 0.7, 0.8, 1.1, 0.7],
+    '4. 安定計算結果',
   )
 
-  writer.heading('5. 側壁部材照査', 2)
+  writer.heading('5. 側壁部材照査', 2, 2 * 21 + 11)
   const wallRows = Object.values(result.cases).flatMap((item) => item.wallChecks.map((check) => [item.label, String(check.face), String(check.direction), safe(check.moment, 2), safe(check.shear, 2), safe(check.concreteStress, 2), safe(check.steelStress, 1), safe(check.utilization, 2), check.status.toUpperCase()]))
-  writer.table(['ケース', '壁面', '方向', 'M', 'S', 'σc', 'σs', '検定比', '判定'], wallRows, [1.1, 0.7, 1.1, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7])
+  writer.table(['ケース', '壁面', '方向', 'M', 'S', 'σc', 'σs', '検定比', '判定'], wallRows, [1.1, 0.7, 1.1, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7], '5. 側壁部材照査')
 
-  writer.heading('6. 底版部材照査', 2)
+  writer.heading('6. 底版部材照査', 2, 2 * 21 + 11)
   const baseRows = Object.values(result.cases).flatMap((item) => item.baseChecks.map((check) => [item.label, check.direction, safe(check.moment, 2), safe(check.shear, 2), safe(check.requiredAs, 0), check.suggestedBar, safe(check.utilization, 2), check.status.toUpperCase()]))
-  writer.table(['ケース', '方向', 'M', 'S', '必要As', '提案配筋', '検定比', '判定'], baseRows, [1.2, 1, 0.7, 0.7, 0.8, 1.2, 0.8, 0.7])
+  writer.table(['ケース', '方向', 'M', 'S', '必要As', '提案配筋', '検定比', '判定'], baseRows, [1.2, 1, 0.7, 0.7, 0.8, 1.2, 0.8, 0.7], '6. 底版部材照査')
 
-  writer.heading('7. 開口補強', 2)
+  writer.heading('7. 開口補強', 2, 2 * 21 + 11)
   const openingRows = result.openings.filter((item) => item.enabled).map((item) => [item.face, item.geometryValid ? 'OK' : '範囲外', safe(item.cutVerticalAs, 0), safe(item.cutHorizontalAs, 0), safe(item.anchorageLength, 0), item.suggestedBar])
-  writer.table(['壁面', '形状', '切断縦As', '切断横As', '定着長', '補強提案'], openingRows, [1, 1, 1, 1, 1, 1.4])
+  writer.table(['壁面', '形状', '切断縦As', '切断横As', '定着長', '補強提案'], openingRows, [1, 1, 1, 1, 1, 1.4], '7. 開口補強')
 
-  writer.heading('8. 採用式・計算過程', 2)
+  writer.heading('8. 採用式・計算過程', 2, 75)
   result.traces.forEach((item) => {
-    writer.paragraph(`${item.label}　${item.formula}`)
-    writer.paragraph(`${item.substitution} → ${safe(item.result, 5)} ${item.unit}　根拠：${item.source}`, muted)
+    writer.trace(`${item.label}　${item.formula}`, `${item.substitution} → ${safe(item.result, 5)} ${item.unit}　根拠：${item.source}`, '8. 採用式・計算過程')
   })
+
+  writer.addPageNumbers()
 
   pdf.setTitle(`${project.basic.projectTitle} 集水マス構造計算書`)
   pdf.setSubject('検証用構造計算書')
