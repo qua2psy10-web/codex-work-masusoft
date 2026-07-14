@@ -29,4 +29,4 @@ npm run build
 - 側壁の板モデルは薄板理論に基づくRayleigh–Ritz数値近似で、開口周辺の局部応力解析は対象外です。
 - 実務利用時は、適用基準、入力条件、式、途中値、判定を有資格者が確認してください。
 
-PDF埋め込みフォントは Noto Sans CJK JP のJIS文字集合サブセットです。ライセンスは [public/fonts/OFL.txt](public/fonts/OFL.txt) を参照してください。
+PDFには Noto Sans JPを埋め込み、英数字・数式には Helveticaを使用します。ブラウザの日本語フォント環境に依存せず表示できます。ライセンスは [public/fonts/OFL.txt](public/fonts/OFL.txt) を参照してください。

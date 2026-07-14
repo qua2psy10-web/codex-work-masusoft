@@ -1,5 +1,5 @@
 import fontkit from '@pdf-lib/fontkit'
-import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib'
 import type { CalculationResult, ProjectV1 } from '../domain/types'
 
 const A4 = { width: 595.28, height: 841.89 }
@@ -29,8 +29,31 @@ class PdfWriter {
   private page: PDFPage
   private y = A4.height - margin
 
-  constructor(private readonly pdf: PDFDocument, private readonly font: PDFFont, private readonly bold: PDFFont) {
+  constructor(
+    private readonly pdf: PDFDocument,
+    private readonly japanese: PDFFont,
+    private readonly latin: PDFFont,
+    private readonly latinBold: PDFFont,
+  ) {
     this.page = pdf.addPage([A4.width, A4.height])
+  }
+
+  private drawText(text: string, x: number, y: number, size: number, color: RGB, bold = false) {
+    const runs: Array<{ text: string; latin: boolean }> = []
+    for (const character of text) {
+      const codePoint = character.codePointAt(0) ?? 0
+      const isLatin = codePoint >= 0x20 && codePoint <= 0x7e
+      const previous = runs.at(-1)
+      if (previous?.latin === isLatin) previous.text += character
+      else runs.push({ text: character, latin: isLatin })
+    }
+
+    let cursor = x
+    runs.forEach((run) => {
+      const font = run.latin ? (bold ? this.latinBold : this.latin) : this.japanese
+      this.page.drawText(run.text, { x: cursor, y, size, font, color })
+      cursor += font.widthOfTextAtSize(run.text, size)
+    })
   }
 
   private ensure(height: number) {
@@ -45,14 +68,14 @@ class PdfWriter {
     const gap = level === 1 ? 30 : 23
     this.ensure(gap)
     if (level === 1) this.page.drawRectangle({ x: margin, y: this.y - 5, width: 5, height: 21, color: navy })
-    this.page.drawText(text, { x: margin + (level === 1 ? 14 : 0), y: this.y, size, font: this.bold, color: level === 1 ? navy : ink })
+    this.drawText(text, margin + (level === 1 ? 14 : 0), this.y, size, level === 1 ? navy : ink, true)
     this.y -= gap
   }
 
   paragraph(text: string, color = ink) {
     const lines = splitText(text, 54)
     this.ensure(lines.length * 15 + 7)
-    lines.forEach((line) => { this.page.drawText(line, { x: margin, y: this.y, size: 9.5, font: this.font, color }); this.y -= 15 })
+    lines.forEach((line) => { this.drawText(line, margin, this.y, 9.5, color); this.y -= 15 })
     this.y -= 4
   }
 
@@ -62,8 +85,8 @@ class PdfWriter {
     rows.forEach(([key, value], index) => {
       const y = this.y - rowHeight
       this.page.drawRectangle({ x: margin, y, width: A4.width - margin * 2, height: rowHeight, color: index % 2 ? rgb(1, 1, 1) : pale, borderColor: border, borderWidth: 0.5 })
-      this.page.drawText(key, { x: margin + 8, y: y + 7, size: 8.5, font: this.font, color: muted })
-      this.page.drawText(value, { x: margin + 190, y: y + 7, size: 8.5, font: this.font, color: ink })
+      this.drawText(key, margin + 8, y + 7, 8.5, muted)
+      this.drawText(value, margin + 190, y + 7, 8.5, ink)
       this.y = y
     })
     this.y -= 10
@@ -79,7 +102,7 @@ class PdfWriter {
       cells.forEach((cell, index) => {
         const width = normalized[index]
         this.page.drawRectangle({ x, y: this.y - rowHeight, width, height: rowHeight, color: header ? pale : rgb(1, 1, 1), borderColor: border, borderWidth: 0.5 })
-        this.page.drawText(cell.slice(0, 16), { x: x + 4, y: this.y - 14, size: header ? 7.5 : 7.2, font: header ? this.bold : this.font, color: ink })
+        this.drawText(cell.slice(0, 16), x + 4, this.y - 14, header ? 7.5 : 7.2, ink, header)
         x += width
       })
       this.y -= rowHeight
@@ -100,8 +123,8 @@ class PdfWriter {
     const base = Math.max(12, height * g.baseThickness / (g.innerHeight + g.baseThickness))
     this.page.drawRectangle({ x, y, width, height, color: rgb(0.88, 0.9, 0.92), borderColor: ink, borderWidth: 1 })
     this.page.drawRectangle({ x: x + wall, y: y + base, width: width - wall * 2, height: height - base + 1, color: rgb(0.75, 0.94, 0.96), borderColor: ink, borderWidth: 0.8 })
-    this.page.drawText(`B=${g.innerWidth.toFixed(3)} m`, { x: x + 45, y: y - 15, size: 8, font: this.font, color: ink })
-    this.page.drawText(`H=${g.innerHeight.toFixed(3)} m`, { x: x - 62, y: y + 45, size: 8, font: this.font, color: ink })
+    this.drawText(`B=${g.innerWidth.toFixed(3)} m`, x + 45, y - 15, 8, ink)
+    this.drawText(`H=${g.innerHeight.toFixed(3)} m`, x - 62, y + 45, 8, ink)
     this.y -= 155
   }
 }
@@ -109,12 +132,13 @@ class PdfWriter {
 export async function createCalculationPdf(project: ProjectV1, result: CalculationResult) {
   const pdf = await PDFDocument.create()
   pdf.registerFontkit(fontkit)
-  const fontResponse = await fetch(`${import.meta.env.BASE_URL}fonts/NotoSansCJKjp-Regular.otf`)
+  const fontResponse = await fetch(`${import.meta.env.BASE_URL}fonts/NotoSansJP-Regular.ttf`)
   if (!fontResponse.ok) throw new Error('日本語PDFフォントを読み込めません。')
   const fontBytes = await fontResponse.arrayBuffer()
-  const font = await pdf.embedFont(fontBytes, { subset: true })
-  const bold = font
-  const writer = new PdfWriter(pdf, font, bold)
+  const japanese = await pdf.embedFont(fontBytes, { subset: false })
+  const latin = await pdf.embedFont(StandardFonts.Helvetica)
+  const latinBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  const writer = new PdfWriter(pdf, japanese, latin, latinBold)
 
   writer.heading('集水マス 構造計算書')
   writer.paragraph(`案件名：${project.basic.projectTitle}`)
