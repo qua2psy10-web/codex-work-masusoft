@@ -49,6 +49,49 @@ export function cantileverActions(top: number, bottom: number, height: number) {
   }
 }
 
+export function eccentricBearingPressure(
+  verticalResultant: number,
+  baseWidth: number,
+  baseDepth: number,
+  eccentricity: number,
+) {
+  if (
+    verticalResultant <= 0
+    || baseWidth <= 0
+    || baseDepth <= 0
+    || !Number.isFinite(eccentricity)
+    || eccentricity >= baseDepth / 2
+  ) {
+    return {
+      minimum: 0,
+      maximum: Number.POSITIVE_INFINITY,
+      contactLength: 0,
+      contactRatio: 0,
+      contactState: 'none' as const,
+    }
+  }
+
+  const average = verticalResultant / (baseWidth * baseDepth)
+  if (eccentricity <= baseDepth / 6) {
+    return {
+      minimum: average * (1 - 6 * eccentricity / baseDepth),
+      maximum: average * (1 + 6 * eccentricity / baseDepth),
+      contactLength: baseDepth,
+      contactRatio: 1,
+      contactState: 'full' as const,
+    }
+  }
+
+  const contactLength = 3 * (baseDepth / 2 - eccentricity)
+  return {
+    minimum: 0,
+    maximum: 2 * verticalResultant / (baseWidth * contactLength),
+    contactLength,
+    contactRatio: contactLength / baseDepth,
+    contactState: 'partial' as const,
+  }
+}
+
 export function barArea(diameter: number) {
   return Math.PI * diameter ** 2 / 4
 }

@@ -33,4 +33,15 @@ describe('案件計算', () => {
     expect(result.cases['static-empty'].stability.upliftForce).toBeGreaterThan(0)
     expect(Number.isFinite(result.cases['static-empty'].stability.upliftSafetyFactor)).toBe(true)
   })
+
+  it('部分接地では負のqminをNG原因にせず三角形分布でqmaxを再計算する', () => {
+    const result = calculateProject(createDefaultProject())
+    const stability = result.cases['static-full'].stability
+    expect(stability.contactState).toBe('partial')
+    expect(stability.contactRatio).toBeGreaterThan(0)
+    expect(stability.contactRatio).toBeLessThan(1)
+    expect(stability.bearingMin).toBe(0)
+    expect(stability.bearingMax).toBeLessThan(stability.allowableBearing)
+    expect(stability.bearingStatus).toBe('warning')
+  })
 })

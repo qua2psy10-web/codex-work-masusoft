@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   atRestCoefficient,
   cantileverActions,
+  eccentricBearingPressure,
   rankineCoefficient,
   trapezoidResultant,
   vehicleSurcharge,
@@ -27,5 +28,29 @@ describe('公開力学式', () => {
 
   it('矩形分散の深度0では接地面積で除した荷重となる', () => {
     expect(vehicleSurcharge(100, 0.3, 0.2, 0.5, 0, 45)).toBeCloseTo(1300, 10)
+  })
+
+  it('偏心がミドルサード内なら全面接地の台形分布となる', () => {
+    const result = eccentricBearingPressure(100, 2, 3, 0.25)
+    expect(result.contactState).toBe('full')
+    expect(result.contactRatio).toBe(1)
+    expect(result.minimum).toBeCloseTo(8.333333, 5)
+    expect(result.maximum).toBeCloseTo(25, 10)
+  })
+
+  it('偏心がミドルサード外ならqminをゼロとする部分接地の三角形分布となる', () => {
+    const result = eccentricBearingPressure(100, 2, 3, 0.75)
+    expect(result.contactState).toBe('partial')
+    expect(result.contactLength).toBeCloseTo(2.25, 10)
+    expect(result.contactRatio).toBeCloseTo(0.75, 10)
+    expect(result.minimum).toBe(0)
+    expect(result.maximum).toBeCloseTo(44.444444, 5)
+  })
+
+  it('合力が底面外なら接地不能として無限大圧力を返す', () => {
+    const result = eccentricBearingPressure(100, 2, 3, 1.5)
+    expect(result.contactState).toBe('none')
+    expect(result.contactRatio).toBe(0)
+    expect(result.maximum).toBe(Number.POSITIVE_INFINITY)
   })
 })

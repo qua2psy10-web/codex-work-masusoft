@@ -144,8 +144,13 @@ export interface StabilityResult {
   eccentricity: number
   bearingMin: number
   bearingMax: number
+  contactLength: number
+  contactRatio: number
+  contactState: 'full' | 'partial' | 'none'
   allowableBearing: number
   terzaghiReference: number
+  upliftStatus: ResultStatus
+  bearingStatus: ResultStatus
   status: ResultStatus
 }
 

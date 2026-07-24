@@ -1,6 +1,6 @@
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib'
-import type { CalculationResult, ProjectV1 } from '../domain/types'
+import type { CalculationResult, ProjectV1, ResultStatus } from '../domain/types'
 
 const A4 = { width: 595.28, height: 841.89 }
 const margin = 42
@@ -12,6 +12,13 @@ const pale = rgb(0.95, 0.96, 0.98)
 
 function safe(value: number, digits = 3) {
   return Number.isFinite(value) ? value.toFixed(digits) : '—'
+}
+
+function statusLabel(status: ResultStatus) {
+  if (status === 'ok') return 'OK'
+  if (status === 'warning') return '要確認'
+  if (status === 'ng') return 'NG'
+  return '範囲外'
 }
 
 function splitText(text: string, maxChars: number) {
@@ -204,9 +211,9 @@ export async function createCalculationPdf(project: ProjectV1, result: Calculati
 
   writer.heading('4. 安定計算結果', 2, 2 * 21 + 11)
   writer.table(
-    ['ケース', '浮上りFs', '鉛直合力', '偏心', 'qmin', 'qmax/qa', '判定'],
-    Object.values(result.cases).map((item) => [item.label, safe(item.stability.upliftSafetyFactor, 2), safe(item.stability.verticalResultant, 1), safe(item.stability.eccentricity, 3), safe(item.stability.bearingMin, 1), `${safe(item.stability.bearingMax, 1)}/${safe(item.stability.allowableBearing, 1)}`, item.stability.status.toUpperCase()]),
-    [1.2, 0.8, 1, 0.7, 0.8, 1.1, 0.7],
+    ['ケース', '浮上りFs', '鉛直合力', '偏心', '接地率', 'qmin', 'qmax/qa', '支持力'],
+    Object.values(result.cases).map((item) => [item.label, safe(item.stability.upliftSafetyFactor, 2), safe(item.stability.verticalResultant, 1), safe(item.stability.eccentricity, 3), `${safe(item.stability.contactRatio * 100, 1)}%`, safe(item.stability.bearingMin, 1), `${safe(item.stability.bearingMax, 1)}/${safe(item.stability.allowableBearing, 1)}`, statusLabel(item.stability.bearingStatus)]),
+    [1.2, 0.8, 1, 0.7, 0.8, 0.8, 1.1, 0.7],
     '4. 安定計算結果',
   )
 

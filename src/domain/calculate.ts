@@ -2,6 +2,7 @@ import {
   atRestCoefficient,
   barArea,
   cantileverActions,
+  eccentricBearingPressure,
   mononobeOkabeCoefficient,
   providedArea,
   rankineCoefficient,
@@ -45,6 +46,11 @@ function statusFromUtilization(value: number): ResultStatus {
   if (value > 1) return 'ng'
   if (value >= 0.8) return 'warning'
   return 'ok'
+}
+
+function worstStatus(...statuses: ResultStatus[]): ResultStatus {
+  const rank: Record<ResultStatus, number> = { ok: 0, warning: 1, ng: 2, 'out-of-range': 3 }
+  return statuses.reduce((worst, status) => rank[status] > rank[worst] ? status : worst, 'ok')
 }
 
 function sectionCheck(
@@ -244,8 +250,9 @@ function buildCase(
   const verticalResultant = resistingWeight - upliftForce
   const eccentricity = verticalResultant > 0 ? overturningMoment / verticalResultant : Number.POSITIVE_INFINITY
   const bearingAverage = verticalResultant / outerArea
-  const bearingMin = bearingAverage * (1 - 6 * eccentricity / outerDepth)
-  const bearingMax = bearingAverage * (1 + 6 * eccentricity / outerDepth)
+  const bearing = eccentricBearingPressure(verticalResultant, outerWidth, outerDepth, eccentricity)
+  const bearingMin = bearing.minimum
+  const bearingMax = bearing.maximum
   const terzaghi = terzaghiReference(
     soil.foundationWidth,
     soil.foundationDepth,
@@ -255,11 +262,22 @@ function buildCase(
     soil.bearingSafetyFactor,
   )
   const allowableBearing = soil.useTerzaghiReference ? terzaghi : soil.allowableBearing
-  const stabilityUtilization = Math.max(
-    basic.upliftSafetyFactor / Math.max(upliftSafetyFactor, 1e-9),
-    bearingMax / allowableBearing,
-    bearingMin < 0 ? 1.01 : 0,
-  )
+  const upliftStatus = statusFromUtilization(basic.upliftSafetyFactor / Math.max(upliftSafetyFactor, 1e-9))
+  const bearingUtilization = bearingMax / allowableBearing
+  const bearingStatus: ResultStatus = !Number.isFinite(allowableBearing) || allowableBearing <= 0
+    ? 'out-of-range'
+    : bearing.contactState === 'none' || bearingUtilization > 1
+      ? 'ng'
+      : bearing.contactState === 'partial' || bearingUtilization >= 0.8
+        ? 'warning'
+        : 'ok'
+  const stabilityStatus = worstStatus(upliftStatus, bearingStatus)
+
+  if (bearing.contactState === 'partial') {
+    warnings.push(`${caseDefinition.label}: 偏心がミドルサード外のため部分接地です。qmin=0の三角形分布でqmaxを再計算しています（接地率 ${(bearing.contactRatio * 100).toFixed(1)}%）。`)
+  } else if (bearing.contactState === 'none') {
+    warnings.push(`${caseDefinition.label}: 鉛直合力の作用位置が底面外にあり、接地圧を算定できません。`)
+  }
 
   trace(traces, {
     category: '安定',
@@ -269,6 +287,20 @@ function buildCase(
     result: upliftSafetyFactor,
     unit: '—',
     source: '鉛直力の釣合い',
+    caseId: caseDefinition.id,
+  })
+  trace(traces, {
+    category: '安定',
+    label: `${caseDefinition.label} 地盤反力度`,
+    formula: bearing.contactState === 'full'
+      ? 'qmin,max = N/A (1 ∓ 6e/L)'
+      : bearing.contactState === 'partial'
+        ? 'a = 3(L/2-e), qmin = 0, qmax = 2N/(B a)'
+        : 'e ≥ L/2：鉛直合力が底面外',
+    substitution: `N=${verticalResultant.toFixed(3)}, e=${Number.isFinite(eccentricity) ? eccentricity.toFixed(3) : '—'}, L=${outerDepth.toFixed(3)}, 接地率=${(bearing.contactRatio * 100).toFixed(1)}%`,
+    result: bearingMax,
+    unit: 'kN/m²',
+    source: 'FHWA公開式（偏心基礎の接地圧）',
     caseId: caseDefinition.id,
   })
 
@@ -335,9 +367,14 @@ function buildCase(
       eccentricity,
       bearingMin,
       bearingMax,
+      contactLength: bearing.contactLength,
+      contactRatio: bearing.contactRatio,
+      contactState: bearing.contactState,
       allowableBearing,
       terzaghiReference: terzaghi,
-      status: statusFromUtilization(stabilityUtilization),
+      upliftStatus,
+      bearingStatus,
+      status: stabilityStatus,
     },
     wallChecks,
     baseChecks,
